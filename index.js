@@ -16,14 +16,14 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
 
-// --- RAID ROTATION (ORDER IS IMPORTANT) ---
+// --- RAID ROTATION ---
 const raids = ["Insect", "Igris", "Elves", "Goblin", "Subway", "Infernal"];
 
-// ✅ STARTING PORTAL = INFERNAL
-let currentIndex = raids.indexOf("Infernal");
+// ✅ STARTING PORTAL = SUBWAY
+let currentIndex = raids.indexOf("Subway");
 if (currentIndex === -1) currentIndex = 0;
 
-// --- RAID ROLE IDS (UPDATED) ---
+// --- RAID ROLE IDS ---
 const raidRoles = {
   Goblin: "1460200107709300757",
   Igris: "1460200234264039640",
@@ -39,7 +39,7 @@ let lastPostedQuarter = null;
 // --- READY ---
 client.once("ready", () => {
   console.log(`Logged in as ${client.user.tag}`);
-  setInterval(checkTimeAndPost, 1000); // check every second
+  setInterval(checkTimeAndPost, 1000);
 });
 
 // --- MAIN LOOP ---
@@ -52,11 +52,10 @@ async function checkTimeAndPost() {
   const minute = phTime.getMinutes();
   const second = phTime.getSeconds();
 
-  // only exact quarter times
   if (second !== 0) return;
   if (![0, 15, 30, 45].includes(minute)) return;
 
-  // unique key per post
+  // Unique key per quarter to prevent double post
   const currentQuarter =
     phTime.getFullYear() +
     String(phTime.getMonth() + 1).padStart(2, "0") +
@@ -70,36 +69,35 @@ async function checkTimeAndPost() {
   const channel = await client.channels.fetch(raidChannelId).catch(() => null);
   if (!channel) return;
 
+  const currentPortal = raids[currentIndex];
+  const nextPortal = raids[(currentIndex + 1) % raids.length];
+
   // --- PORTAL UPDATE (00 & 30) ---
   if (minute === 0 || minute === 30) {
-    const currentPortal = raids[currentIndex];
-    const nextPortal = raids[(currentIndex + 1) % raids.length];
-
     const roleId = raidRoles[currentPortal];
     const rolePing = roleId ? `<@&${roleId}>` : "";
 
-    const message = `
-🌀 **PORTAL UPDATE** 🌀
+    // Hunter-style framed message
+    const portalMessage = `
+╔════════〔 PORTAL UPDATE 〕════════╗
+║ ▶ CURRENT DUNGEON : ${currentPortal}
+║ ▷ NEXT DUNGEON    : ${nextPortal}
+║
+║ ⚔️ No fear. No retreat. Only victory.
+║ 🛡️ Be ready, hunters… your hunt begins.
+╚═══════════════════════════════════╝
+${rolePing}
+`;
 
-🗡️ **Current Portal**
-➤ **${currentPortal}**
+    await channel.send(portalMessage);
 
-⏭️ **Next Portal**
-➤ **${nextPortal}**
-
-💪 No fear. No retreat. Only victory.
-
-🔔 ${rolePing}
-    `;
-
-    await channel.send(message);
-
-    // move to next portal
+    // Move to next portal
     currentIndex = (currentIndex + 1) % raids.length;
   }
   // --- REMINDER (15 & 45) ---
   else {
-    await channel.send("⏰ **PORTAL Reminder!** Get ready for the next portal!");
+    const reminderMessage = `───〔 HUNTER ALERT 〕─── Be ready, hunters… your hunt begins — next dungeon: ${nextPortal}`;
+    await channel.send(reminderMessage);
   }
 }
 
