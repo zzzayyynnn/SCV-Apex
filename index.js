@@ -8,27 +8,29 @@ if (!token) {
   process.exit(1);
 }
 
-// --- CHANNEL ID (FIXED) ---
+// --- CHANNEL ID ---
 const raidChannelId = "1460195261258268856";
 
 // --- Discord Client ---
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds],
+});
 
-// --- RAID ROTATION ---
+// --- RAID ROTATION (ORDER IS IMPORTANT) ---
 const raids = ["Insect", "Igris", "Elves", "Goblin", "Subway", "Infernal"];
 
-// ✅ STARTING PORTAL = Subway
-let currentIndex = raids.indexOf("Subway");
+// ✅ STARTING PORTAL = INFERNAL
+let currentIndex = raids.indexOf("Infernal");
 if (currentIndex === -1) currentIndex = 0;
 
-// --- RAID ROLE IDS ---
+// --- RAID ROLE IDS (UPDATED) ---
 const raidRoles = {
-  Insect: "1460130634000236769",
-  Igris: "1460130485702365387",
-  Infernal: "1460130564353953872",
-  Goblin: "1460130693895159982",
-  Subway: "1460130735175499862",
-  Elves: "1460131344205218018",
+  Goblin: "1460200107709300757",
+  Igris: "1460200234264039640",
+  Infernal: "1460200362970447944",
+  Subway: "1460200571746254930",
+  Insect: "1460200741678616659",
+  Elves: "1460200673185366158",
 };
 
 // --- Prevent double posts ---
@@ -43,21 +45,24 @@ client.once("ready", () => {
 // --- MAIN LOOP ---
 async function checkTimeAndPost() {
   const now = new Date();
-  const phTime = new Date(now.getTime() + 8 * 60 * 60 * 1000); // PH UTC+8
+
+  // PH Time (UTC+8)
+  const phTime = new Date(now.getTime() + 8 * 60 * 60 * 1000);
 
   const minute = phTime.getMinutes();
   const second = phTime.getSeconds();
 
+  // only exact quarter times
   if (second !== 0) return;
   if (![0, 15, 30, 45].includes(minute)) return;
 
-  // unique key per quarter
+  // unique key per post
   const currentQuarter =
-    phTime.getFullYear().toString() +
-    (phTime.getMonth() + 1).toString().padStart(2, "0") +
-    phTime.getDate().toString().padStart(2, "0") +
-    phTime.getHours().toString().padStart(2, "0") +
-    minute.toString().padStart(2, "0");
+    phTime.getFullYear() +
+    String(phTime.getMonth() + 1).padStart(2, "0") +
+    String(phTime.getDate()).padStart(2, "0") +
+    String(phTime.getHours()).padStart(2, "0") +
+    String(minute).padStart(2, "0");
 
   if (lastPostedQuarter === currentQuarter) return;
   lastPostedQuarter = currentQuarter;
@@ -65,7 +70,7 @@ async function checkTimeAndPost() {
   const channel = await client.channels.fetch(raidChannelId).catch(() => null);
   if (!channel) return;
 
-  // --- PORTAL UPDATE ---
+  // --- PORTAL UPDATE (00 & 30) ---
   if (minute === 0 || minute === 30) {
     const currentPortal = raids[currentIndex];
     const nextPortal = raids[(currentIndex + 1) % raids.length];
@@ -74,36 +79,37 @@ async function checkTimeAndPost() {
     const rolePing = roleId ? `<@&${roleId}>` : "";
 
     const message = `
-🌀 PORTAL UPDATE 🌀
+🌀 **PORTAL UPDATE** 🌀
 
-🗡️ Current Portal:
+🗡️ **Current Portal**
 ➤ **${currentPortal}**
 
-⏭️ Next Portal:
+⏭️ **Next Portal**
 ➤ **${nextPortal}**
 
-💪➤ No fear. No retreat. Only victory.
+💪 No fear. No retreat. Only victory.
 
-⏰ Prepare yourselves.
 🔔 ${rolePing}
     `;
 
     await channel.send(message);
 
-    // move to next raid
+    // move to next portal
     currentIndex = (currentIndex + 1) % raids.length;
   }
-  // --- REMINDER ---
+  // --- REMINDER (15 & 45) ---
   else {
     await channel.send("⏰ **PORTAL Reminder!** Get ready for the next portal!");
   }
 }
 
-// --- EXPRESS SERVER (RENDER) ---
+// --- EXPRESS SERVER (RENDER KEEP-ALIVE) ---
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.get("/", (req, res) => res.send("Discord Bot is running ✅"));
+app.get("/", (req, res) => {
+  res.send("Discord Bot is running ✅");
+});
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
