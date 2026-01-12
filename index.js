@@ -36,6 +36,9 @@ const raidRoles = {
 // --- Prevent double posts ---
 let lastPostedQuarter = null;
 
+// --- IMAGE URL for PORTAL UPDATE ---
+const portalImageURL = "https://cdn.discordapp.com/attachments/1460212485960368282/1460297774636597248/image.png?ex=696667c8&is=69651648&hm=09a246922fb5ba79117201dbb6da19e6d0b032b5989cffa98e1c3a2a2380ea25&";
+
 // --- READY ---
 client.once("ready", () => {
   console.log(`Logged in as ${client.user.tag}`);
@@ -77,7 +80,7 @@ async function checkTimeAndPost() {
     const roleId = raidRoles[currentPortal];
     const rolePing = roleId ? `<@&${roleId}>` : "";
 
-    // Hunter-style framed message
+    // Hunter-style framed message + image
     const portalMessage = `
 ╔════════〔 PORTAL UPDATE 〕════════╗
 ║ ▶ CURRENT DUNGEON : ${currentPortal}
@@ -89,7 +92,7 @@ async function checkTimeAndPost() {
 ${rolePing}
 `;
 
-    await channel.send(portalMessage);
+    await channel.send({ content: portalMessage, files: [portalImageURL] });
 
     // Move to next portal
     currentIndex = (currentIndex + 1) % raids.length;
