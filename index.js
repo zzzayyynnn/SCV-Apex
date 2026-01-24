@@ -1,120 +1,198 @@
-const { Client, GatewayIntentBits } = require("discord.js");
+const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
 const express = require("express");
 
-// --- Discord Bot Token ---
+// ================= CONFIG =================
 const token = process.env.TOKEN;
 if (!token) {
-  console.error("TOKEN env variable not found! Set it in Render Environment Variables!");
+  console.error("TOKEN env variable not found!");
   process.exit(1);
 }
 
-// --- CHANNEL ID ---
-const raidChannelId = "1460195261258268856";
+const raidChannelId = "1464548057067819150";
 
-// --- Discord Client ---
+// ================= CLIENT =================
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
 
-// --- RAID ROTATION ---
-const raids = ["Insect", "Igris", "Elves", "Goblin", "Subway", "Infernal"];
+// ================= RAID ROTATION =================
+// Infernal → Insect → Igris → Demon → Elves(Baruka) → Goblin → Subway
+const raids = [
+  "Infernal",
+  "Insect",
+  "Igris",
+  "Demon Castle",
+  "Elves",
+  "Goblin",
+  "Subway",
+];
 
-// ✅ STARTING PORTAL = INSECT
+// 🔥 START SETUP
+// 👉 First ACTIVE at :00 / :30 = INSECT
 let currentIndex = raids.indexOf("Insect");
-if (currentIndex === -1) currentIndex = 0;
+let lastActiveIndex = currentIndex;
 
-// --- RAID ROLE IDS ---
-const raidRoles = {
-  Goblin: "1460200107709300757",
-  Igris: "1460200234264039640",
-  Infernal: "1460200362970447944",
-  Subway: "1460200571746254930",
-  Insect: "1460200741678616659",
-  Elves: "1460200673185366158",
+// ================= IMAGES =================
+const dungeonImages = {
+  Goblin:
+    "https://cdn.discordapp.com/attachments/1460638599082021107/1460695534078529679/image.png",
+  Subway:
+    "https://cdn.discordapp.com/attachments/1460638599082021107/1460696594457563291/image.png",
+  Infernal:
+    "https://cdn.discordapp.com/attachments/1460638599082021107/1460697434920587489/image.png",
+  Insect:
+    "https://cdn.discordapp.com/attachments/1460638599082021107/1460696683498176737/image.png",
+  Igris:
+    "https://cdn.discordapp.com/attachments/1460638599082021107/1460696861399842979/image.png",
+  Elves:
+    "https://cdn.discordapp.com/attachments/1460638599082021107/1460695678941663377/image.png",
+  "Demon Castle":
+    "https://cdn.discordapp.com/attachments/1410965755742130247/1463577590039183431/image.png",
 };
 
-// --- Prevent double posts ---
-let lastPostedQuarter = null;
+// ================= ROLE IDS =================
+const raidRoles = {
+  Infernal: "1464695497771192609",
+  Igris: "1464698522342392065",
+  Insect: "1464696827159773338",
+  "Demon Castle": "1464698772557664387",
+  Elves: "1464698910110122058",
+  Goblin: "1464699108819206298",
+  Subway: "1464699199118377075",
+};
 
-// --- IMAGE URL for PORTAL UPDATE ---
-const portalImageURL = "https://cdn.discordapp.com/attachments/1460212485960368282/1460297774636597248/image.png?ex=696667c8&is=69651648&hm=09a246922fb5ba79117201dbb6da19e6d0b032b5989cffa98e1c3a2a2380ea25&";
+// ================= STATE =================
+let reminderMessage = null;
+let pingSent = false;
+let lastTick = "";
 
-// --- READY ---
+// ================= READY =================
 client.once("ready", () => {
   console.log(`Logged in as ${client.user.tag}`);
-  setInterval(checkTimeAndPost, 1000);
+  console.log(`First ACTIVE => ${raids[currentIndex]}`);
+  setInterval(mainLoop, 1000);
 });
 
-// --- MAIN LOOP ---
-async function checkTimeAndPost() {
+// ================= REMINDER =================
+async function postReminder(channel, dungeon, secondsLeft) {
+  pingSent = false;
+
+  const format = (s) =>
+    `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(
+      2,
+      "0"
+    )}`;
+
+  const updateEmbed = async () => {
+    const red = secondsLeft <= 180;
+
+    const embed = new EmbedBuilder()
+      .setColor(red ? 0xff0000 : 0x11162a)
+      .setTitle("「 SYSTEM WARNING 」")
+      .setDescription(
+        [
+          "━━━━━━━━━━━━━━━━━━",
+          "**🗡️ UPCOMING DUNGEON**",
+          `> ${dungeon}`,
+          "",
+          `⏱️ Starts in: ${format(secondsLeft)}`,
+          red ? "🔴 **RED ALERT!**" : "",
+          "━━━━━━━━━━━━━━━━━━",
+        ].join("\n")
+      )
+      .setImage(dungeonImages[dungeon])
+      .setTimestamp();
+
+    if (!reminderMessage) {
+      reminderMessage = await channel.send({ embeds: [embed] });
+    } else {
+      await reminderMessage.edit({ embeds: [embed] });
+    }
+  };
+
+  await updateEmbed();
+
+  const timer = setInterval(async () => {
+    secondsLeft--;
+
+    if (secondsLeft <= 0) {
+      clearInterval(timer);
+      return;
+    }
+
+    // 🔔 3-minute ping (once only)
+    if (secondsLeft === 180 && !pingSent && raidRoles[dungeon]) {
+      pingSent = true;
+      await channel.send(`<@&${raidRoles[dungeon]}>`);
+    }
+
+    await updateEmbed();
+  }, 1000);
+}
+
+// ================= MAIN LOOP =================
+async function mainLoop() {
   const now = new Date();
+  const ph = new Date(now.getTime() + 8 * 60 * 60 * 1000);
 
-  // PH Time (UTC+8)
-  const phTime = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  const m = ph.getMinutes();
+  const s = ph.getSeconds();
 
-  const minute = phTime.getMinutes();
-  const second = phTime.getSeconds();
-
-  if (second !== 0) return;
-  if (![0, 15, 30, 45].includes(minute)) return;
-
-  // Unique key per quarter to prevent double post
-  const currentQuarter =
-    phTime.getFullYear() +
-    String(phTime.getMonth() + 1).padStart(2, "0") +
-    String(phTime.getDate()).padStart(2, "0") +
-    String(phTime.getHours()).padStart(2, "0") +
-    String(minute).padStart(2, "0");
-
-  if (lastPostedQuarter === currentQuarter) return;
-  lastPostedQuarter = currentQuarter;
+  const tick = `${m}:${s}`;
+  if (tick === lastTick) return;
+  lastTick = tick;
 
   const channel = await client.channels.fetch(raidChannelId).catch(() => null);
   if (!channel) return;
 
-  const currentPortal = raids[currentIndex];
-  const nextPortal = raids[(currentIndex + 1) % raids.length];
+  // ===== ACTIVE POST (:00 / :30) =====
+  if (s === 0 && (m === 0 || m === 30)) {
+    lastActiveIndex = currentIndex;
 
-  // --- PORTAL UPDATE (00 & 30) ---
-  if (minute === 0 || minute === 30) {
-    const roleId = raidRoles[currentPortal];
-    const rolePing = roleId ? `<@&${roleId}>` : "";
+    const active = raids[lastActiveIndex];
+    const upcoming = raids[(lastActiveIndex + 1) % raids.length];
 
-    // Hunter-style framed message + image
-    const portalMessage = `
-╔════════〔 PORTAL UPDATE 〕════════╗
-║ ▶ CURRENT DUNGEON : ${currentPortal}
-║ ▷ NEXT DUNGEON    : ${nextPortal}
-║
-║ ⚔️ No fear. No retreat. Only victory.
-║ 🛡️ Be ready, hunters… your hunt begins.
-╚═══════════════════════════════════╝
-${rolePing}
-`;
+    const embed = new EmbedBuilder()
+      .setColor(0x05070f)
+      .setTitle("「 SYSTEM — DUNGEON STATUS 」")
+      .setDescription(
+        [
+          "━━━━━━━━━━━━━━━━━━",
+          "**⚔️ ACTIVE DUNGEON**",
+          `> ${active}`,
+          "",
+          "**➡️ NEXT DUNGEON**",
+          `> ${upcoming}`,
+          "━━━━━━━━━━━━━━━━━━",
+        ].join("\n")
+      )
+      .setImage(dungeonImages[active])
+      .setTimestamp();
 
-    await channel.send({ content: portalMessage, files: [portalImageURL] });
+    await channel.send({ embeds: [embed] });
 
-    // Move to next portal
     currentIndex = (currentIndex + 1) % raids.length;
+    reminderMessage = null;
   }
-  // --- REMINDER (15 & 45) ---
-  else {
-    const reminderMessage = `───〔 HUNTER ALERT 〕─── Be ready, hunters… your hunt begins — next dungeon: ${nextPortal}`;
-    await channel.send(reminderMessage);
+
+  // ===== UPCOMING REMINDER (:20 / :50) =====
+  if (s === 0 && (m === 20 || m === 50)) {
+    if (!reminderMessage) {
+      const upcoming = raids[(lastActiveIndex + 1) % raids.length];
+      const targetMinute = m === 20 ? 30 : 0;
+
+      const secondsLeft =
+        (targetMinute - m + (targetMinute <= m ? 60 : 0)) * 60;
+
+      await postReminder(channel, upcoming, secondsLeft);
+    }
   }
 }
 
-// --- EXPRESS SERVER (RENDER KEEP-ALIVE) ---
+// ================= EXPRESS =================
 const app = express();
-const PORT = process.env.PORT || 3000;
+app.get("/", (_, res) => res.send("Bot is running"));
+app.listen(process.env.PORT || 3000);
 
-app.get("/", (req, res) => {
-  res.send("Discord Bot is running ✅");
-});
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
-
-// --- LOGIN ---
+// ================= LOGIN =================
 client.login(token);
