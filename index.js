@@ -28,10 +28,14 @@ const raids = [
 ];
 
 // 🔥 START SETUP
-// First ACTIVE at :00 / :30 = ELVES
-let currentIndex = raids.indexOf("Elves");
+// First ACTIVE at :00 / :30 = INSECT
+let currentIndex = raids.indexOf("Insect");
 let reminderMessage = null;
 let pingSent = false;
+
+// anti-double-post locks
+let lastActiveKey = null;
+let lastReminderKey = null;
 
 // ================= IMAGES =================
 const dungeonImages = {
@@ -56,7 +60,8 @@ const raidRoles = {
 };
 
 // ================= FUNCTIONS =================
-const formatTime = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+const formatTime = (s) =>
+  `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
 async function postReminder(channel, dungeon, secondsLeft) {
   pingSent = false;
@@ -110,16 +115,22 @@ async function postReminder(channel, dungeon, secondsLeft) {
 // ================= MAIN LOOP =================
 async function mainLoop() {
   const now = new Date();
-  const ph = new Date(now.getTime() + 8 * 60 * 60 * 1000); // PH time +8 UTC
+  const ph = new Date(now.getTime() + 8 * 60 * 60 * 1000); // PH time
 
+  const h = ph.getHours();
   const m = ph.getMinutes();
   const s = ph.getSeconds();
 
   const channel = await client.channels.fetch(raidChannelId).catch(() => null);
   if (!channel) return;
 
-  // ===== ACTIVE DUNGEON POSTS =====
-  if ((m % 30 === 0) && s === 0) {
+  const activeKey = `${h}:${m}:active`;
+  const reminderKey = `${h}:${m}:reminder`;
+
+  // ===== ACTIVE DUNGEON (:00 / :30) =====
+  if ((m % 30 === 0) && s === 0 && lastActiveKey !== activeKey) {
+    lastActiveKey = activeKey;
+
     const active = raids[currentIndex];
     const upcoming = raids[(currentIndex + 1) % raids.length];
 
@@ -146,13 +157,20 @@ async function mainLoop() {
     reminderMessage = null;
   }
 
-  // ===== UPCOMING REMINDERS =====
-  if ((m % 30 === 20 && s === 0) || (m % 30 === 50 && s === 0)) {
-    const upcoming = raids[(currentIndex) % raids.length];
-    const targetMinute = (m % 30 === 20) ? 30 : 0;
-    const secondsLeft = (targetMinute - m + (targetMinute <= m ? 30 : 0)) * 60;
+  // ===== REMINDER (:20 / :50) =====
+  if (
+    ((m % 30 === 20) || (m % 30 === 50)) &&
+    s === 0 &&
+    lastReminderKey !== reminderKey
+  ) {
+    lastReminderKey = reminderKey;
 
-    if (!reminderMessage) await postReminder(channel, upcoming, secondsLeft);
+    const upcoming = raids[currentIndex];
+    const secondsLeft = 600; // 10 minutes
+
+    if (!reminderMessage) {
+      await postReminder(channel, upcoming, secondsLeft);
+    }
   }
 }
 
@@ -160,7 +178,7 @@ async function mainLoop() {
 client.once("ready", () => {
   console.log(`Logged in as ${client.user.tag}`);
   console.log(`First ACTIVE => ${raids[currentIndex]}`);
-  setInterval(mainLoop, 500); // 10x check to ensure alignment
+  setInterval(mainLoop, 200); // ✅ 5x check
 });
 
 // ================= EXPRESS =================
