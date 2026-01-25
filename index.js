@@ -28,8 +28,8 @@ const raids = [
 ];
 
 // 🔥 START SETUP
-// First ACTIVE at :00 / :30 = INSECT
-let currentIndex = raids.indexOf("Insect");
+// First ACTIVE at :00 / :30 = DEMON CASTLE
+let currentIndex = raids.indexOf("Demon Castle");
 let reminderMessage = null;
 let pingSent = false;
 
