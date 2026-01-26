@@ -15,27 +15,67 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
 
-// ================= RAID ROTATION =================
-// Subway → Infernal → Insect → Igris → Demon Castle → Elves → Goblin
-const raids = [
-  "Subway",
-  "Infernal",
-  "Insect",
-  "Igris",
-  "Demon Castle",
-  "Elves",
-  "Goblin",
-];
+// ================= FIXED 24H DUNGEON SCHEDULE (PH TIME) =================
+const dungeonSchedule = {
+  "00:00": "Igris",
+  "00:30": "Demon Castle",
+  "01:00": "Elves",
+  "01:30": "Goblin",
+  "02:00": "Subway",
+  "02:30": "Infernal",
+  "03:00": "Insect",
+  "03:30": "Igris",
+  "04:00": "Demon Castle",
+  "04:30": "Elves",
+  "05:00": "Goblin",
+  "05:30": "Subway",
+  "06:00": "Infernal",
+  "06:30": "Insect",
+  "07:00": "Igris",
+  "07:30": "Demon Castle",
 
-// 🔥 START SETUP
-// First ACTIVE at :00 / :30 = DEMON CASTLE
-let currentIndex = raids.indexOf("Demon Castle");
+  // 🔥 8:00 AM SKIP
+  "08:00": "Goblin",
+  "08:30": "Subway",
+  "09:00": "Infernal",
+  "09:30": "Insect",
+  "10:00": "Igris",
+  "10:30": "Demon Castle",
+  "11:00": "Elves",
+  "11:30": "Goblin",
+
+  "12:00": "Subway",
+  "12:30": "Infernal",
+  "13:00": "Insect",
+  "13:30": "Igris",
+  "14:00": "Demon Castle",
+  "14:30": "Elves",
+  "15:00": "Goblin",
+  "15:30": "Subway",
+  "16:00": "Infernal",
+  "16:30": "Insect",
+  "17:00": "Igris",
+  "17:30": "Demon Castle",
+  "18:00": "Elves",
+  "18:30": "Goblin",
+  "19:00": "Subway",
+  "19:30": "Infernal",
+  "20:00": "Insect",
+  "20:30": "Igris",
+  "21:00": "Demon Castle",
+  "21:30": "Elves",
+  "22:00": "Goblin",
+  "22:30": "Subway",
+  "23:00": "Infernal",
+  "23:30": "Insect",
+};
+
+// ================= STATE =================
 let reminderMessage = null;
 let pingSent = false;
-
-// anti-double-post locks
-let lastActiveKey = null;
-let lastReminderKey = null;
+let lastActiveSlot = null;
+let lastReminderSlot = null;
+let firstPostDone = false; // 🔒 first post = 1:00 PM
 
 // ================= IMAGES =================
 const dungeonImages = {
@@ -59,10 +99,38 @@ const raidRoles = {
   Subway: "1464699199118377075",
 };
 
-// ================= FUNCTIONS =================
-const formatTime = (s) =>
-  `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+// ================= TIME HELPERS =================
+function getPHTime() {
+  const now = new Date();
+  return new Date(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    now.getUTCHours() + 8,
+    now.getUTCMinutes(),
+    now.getUTCSeconds()
+  );
+}
 
+function formatHM(d) {
+  return `${String(d.getHours()).padStart(2, "0")}:${String(
+    d.getMinutes()
+  ).padStart(2, "0")}`;
+}
+
+function getNextSlot(time) {
+  const [h, m] = time.split(":").map(Number);
+  const d = new Date();
+  d.setHours(h, m + 30, 0, 0);
+  return formatHM(d);
+}
+
+const formatCountdown = (s) =>
+  `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(
+    Math.floor(s % 60)
+  ).padStart(2, "0")}`;
+
+// ================= REMINDER =================
 async function postReminder(channel, dungeon, secondsLeft) {
   pingSent = false;
 
@@ -78,7 +146,7 @@ async function postReminder(channel, dungeon, secondsLeft) {
           "**🗡️ UPCOMING DUNGEON**",
           `> ${dungeon}`,
           "",
-          `⏱️ Starts in: ${formatTime(secondsLeft)}`,
+          `⏱️ Starts in: ${formatCountdown(secondsLeft)}`,
           red ? "🔴 **RED ALERT!**" : "",
           "━━━━━━━━━━━━━━━━━━",
         ].join("\n")
@@ -97,7 +165,6 @@ async function postReminder(channel, dungeon, secondsLeft) {
 
   const timer = setInterval(async () => {
     secondsLeft--;
-
     if (secondsLeft <= 0) {
       clearInterval(timer);
       return;
@@ -114,71 +181,76 @@ async function postReminder(channel, dungeon, secondsLeft) {
 
 // ================= MAIN LOOP =================
 async function mainLoop() {
-  const now = new Date();
-  const ph = new Date(now.getTime() + 8 * 60 * 60 * 1000); // PH time
-
-  const h = ph.getHours();
+  const ph = getPHTime();
   const m = ph.getMinutes();
   const s = ph.getSeconds();
+  const slot = `${m}-${s}`;
 
   const channel = await client.channels.fetch(raidChannelId).catch(() => null);
   if (!channel) return;
 
-  const activeKey = `${h}:${m}:active`;
-  const reminderKey = `${h}:${m}:reminder`;
+  // ===== ACTIVE (:00 / :30) =====
+  if (s === 0 && (m === 0 || m === 30)) {
+    if (lastActiveSlot === slot) return;
+    lastActiveSlot = slot;
 
-  // ===== ACTIVE DUNGEON (:00 / :30) =====
-  if ((m % 30 === 0) && s === 0 && lastActiveKey !== activeKey) {
-    lastActiveKey = activeKey;
+    const timeKey = formatHM(ph);
 
-    const active = raids[currentIndex];
-    const upcoming = raids[(currentIndex + 1) % raids.length];
+    // 🔒 FIRST POST ONLY AT 1:00 PM
+    if (!firstPostDone && timeKey !== "13:00") return;
 
-    const embed = new EmbedBuilder()
-      .setColor(0x05070f)
-      .setTitle("「 SYSTEM — DUNGEON STATUS 」")
-      .setDescription(
-        [
-          "━━━━━━━━━━━━━━━━━━",
-          "**⚔️ ACTIVE DUNGEON**",
-          `> ${active}`,
-          "",
-          "**➡️ NEXT DUNGEON**",
-          `> ${upcoming}`,
-          "━━━━━━━━━━━━━━━━━━",
-        ].join("\n")
-      )
-      .setImage(dungeonImages[active])
-      .setTimestamp();
+    const active = dungeonSchedule[timeKey];
+    if (!active) return;
 
-    await channel.send({ embeds: [embed] });
+    const next = dungeonSchedule[getNextSlot(timeKey)];
 
-    currentIndex = (currentIndex + 1) % raids.length;
+    await channel.send({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0x05070f)
+          .setTitle("「 SYSTEM — DUNGEON STATUS 」")
+          .setDescription(
+            [
+              "━━━━━━━━━━━━━━━━━━",
+              "**⚔️ ACTIVE DUNGEON**",
+              `> ${active}`,
+              "",
+              "**➡️ NEXT DUNGEON**",
+              `> ${next}`,
+              "━━━━━━━━━━━━━━━━━━",
+            ].join("\n")
+          )
+          .setImage(dungeonImages[active])
+          .setTimestamp(),
+      ],
+    });
+
+    firstPostDone = true;
     reminderMessage = null;
+    pingSent = false;
   }
 
   // ===== REMINDER (:20 / :50) =====
-  if (
-    ((m % 30 === 20) || (m % 30 === 50)) &&
-    s === 0 &&
-    lastReminderKey !== reminderKey
-  ) {
-    lastReminderKey = reminderKey;
+  if (s === 0 && (m === 20 || m === 50)) {
+    if (lastReminderSlot === slot) return;
+    lastReminderSlot = slot;
 
-    const upcoming = raids[currentIndex];
-    const secondsLeft = 600; // 10 minutes
+    const base = new Date(ph);
+    base.setMinutes(m === 20 ? 30 : 60, 0, 0);
 
-    if (!reminderMessage) {
-      await postReminder(channel, upcoming, secondsLeft);
-    }
+    const upcoming = dungeonSchedule[formatHM(base)];
+    if (!upcoming) return;
+
+    const secondsLeft = (base - ph) / 1000;
+    await postReminder(channel, upcoming, secondsLeft);
   }
 }
 
 // ================= READY =================
 client.once("ready", () => {
   console.log(`Logged in as ${client.user.tag}`);
-  console.log(`First ACTIVE => ${raids[currentIndex]}`);
-  setInterval(mainLoop, 200); // ✅ 5x check
+  console.log("Waiting for first post at 1:00 PM (PH time)");
+  setInterval(mainLoop, 1000);
 });
 
 // ================= EXPRESS =================
